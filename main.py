@@ -1,21 +1,19 @@
 import difflib
 
-import argparse
+from PIL import Image
 import cv2
-from cnocr import CnOcr
+import easyocr
+import argparse
 
-# config of command
-parser = argparse.ArgumentParser(description="Get the caption of the video")
-parser.add_argument('-f', "--File", type=str, required=True, help='Path of the Video File')
-parser.add_argument('-r', "--SequenceMatcherRation", type=float, help='decide if it is a new line')
-parser.add_argument('-c', "--Cut", type=float, help="cut the 1/c bottom of the video as the area to OCR")
-parser.add_argument('-s', "--Score", type=float, help="the minimum score it should get")
-parser.add_argument('-t', "--Thresh", type=int, help="the thresh to threshold")
-parser.add_argument('-ml' "--MinLength", type=int, help="the minimum length of a new line")
+parser = argparse.ArgumentParser(description="Get subtitle displayed on the video")
+file = parser.add_argument("-f","--file",type=str,required=True,help="Path of the video file")
+parser.add_argument("-p","--position",type=str,required=True,help="Position of the left top corner of the subtitle.It should be the pixel distance to the left side of the video, 'x', another pixel distance to the top of the video.e.g. 10x320 ")
+parser.add_argument("-s","--size",type=str,required=True,help="Size of the subtitle.It should be the width, 'x', and the height. e.g 620x40")
+parser.add_argument("-t","--thresh",type=int,default=0,help="Use cv2.threshold to enhance the subtitle image. Any pixel which is higher than this value will become white, and others will become black.\nIf the value is default 0, cv2.threshold will not be used. Please keep it 0 when the background of subtitle is a single colour.")
+parser.add_argument("-sc","--score",type=float,default=0.4,help="The lowest score a part of subtitle should get.")
+parser.add_argument("-ml","--minLength",type=int,default=2,help="Only text with a length greater than this value is considered part of the subtitles.")
+parser.add_argument('-st', "--similarityThreshold", type=float,default=0.7, help="Consider a new line if the similarity between the newly detected text and the previous detected text is below this value.")
 args = parser.parse_args()
-
-
-# the function covert time to lrc format
 
 def lrc_time_format(time):
     second = time % 60
@@ -27,55 +25,66 @@ def lrc_time_format(time):
     minutestr = minutestr.rjust(2, '0')
     return '[' + minutestr + ':' + secondstr + ']'
 
-
 if __name__ == "__main__":
-    if args.SequenceMatcherRation is None:
-        smr = 0.7
+    capture = cv2.VideoCapture(args.file)
+    pos_list = args.position.split('x')
+
+    #check if the arugments are in the range and set default
+    if not 0 <= args.thresh <= 255 : raise argparse.ArgumentTypeError("The thresh value should be between 0 and 255")
+    else : thresh = args.thresh
+
+    if not 0 <= args.score <= 1: raise argparse.ArgumentTypeError("The score value should be between 0 and 1")
+    else: score = args.score
+
+    if not 0 <= args.minLength: raise argparse.ArgumentTypeError("Please enter a sensible number about minLength")
+    else: minLength = args.minLength
+
+    if not 0 <= args.similarityThreshold <= 1: raise argparse.ArgumentTypeError("The similarity value should be between 0 and 1")
+    else: st = args.similarityThreshold
+
+    #parse the area of the subtitle
+    if len(pos_list) != 2:
+        raise argparse.ArgumentTypeError("The format of the position cannot be parsed")
+    pos_list = [int(pos_list[0]),int(pos_list[1])]
+
+    size_list = args.size.split('x')
+    if len(size_list) != 2:
+        raise argparse.ArgumentTypeError("The format of the position cannot be parsed")
+    size_list = [int(size_list[0]),int(size_list[1])]
+
+    subs_corner = [[pos_list[0]-1,pos_list[1]-1],[pos_list[0]+size_list[0]-1,pos_list[1]+size_list[1]-1]]
+
+    if not capture.isOpened():
+        raise argparse.ArgumentError(file,"Cannot open the video file")
+    elif not (( 0 <= subs_corner[0][0] < int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)) ) and (0 <= subs_corner[0][1] < int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT)) ) and \
+        ( 0 <= subs_corner[1][0] < int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)) ) and (0 <= subs_corner[1][1] < int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT)) )):
+        raise argparse.ArgumentTypeError("The subtitile area entered is out of the video")
     else:
-        smr = args.SequenceMatcherRation
-    if args.Cut is None:
-        cut = 2
-    else:
-        cut = args.Cut
-    if args.Thresh is None:
-        thresh = 200
-    else:
-        thresh = args.Thresh
-    if args.Score is None:
-        score = 0.5
-    else:
-        score = args.Score
-    if args.ml__MinLength is None:
-        minLength = 2
-    else:
-        minLength = args.ml__MinLength
-    capture = cv2.VideoCapture(args.File)
-    ocr = CnOcr()
-    textOCR = ""
-    textNow = ""
-    i = 0
-    fps = capture.get(cv2.CAP_PROP_FPS)
-    print(fps)
-    if capture.isOpened():
+        fps = capture.get(cv2.CAP_PROP_FPS)
+        i = 0
+        textOCR = ""
+        textNow = ""
+        ocr = easyocr.Reader(['en','ch_sim'])
+        print(thresh)
         while True:
-            i = i + 1
+            i += 1
             ret, img = capture.read()
             if not ret:break
-            height = len(img)
-            width = len(img[0])
-            img = img[int(height * (1 - 1 / cut)):height, 0:width]
-            ret, binary = cv2.threshold(img, thresh, 255, cv2.THRESH_BINARY_INV)
-            out = ocr.ocr(binary)
+            img = img[subs_corner[0][1]:subs_corner[1][1],subs_corner[0][0]:subs_corner[1][0]]
+            if thresh != 0:ret, img = cv2.threshold(img, thresh, 255, cv2.THRESH_BINARY)
+            out = ocr.readtext(img)
             if len(out) > 0:
                 for j in out:
-                    if (j["score"] > score) and (len(j["text"]) >= minLength):
+                    if (j[-1] > score) and (len(j[-2]) > minLength):
                         textOCR = ""
                         break
                 for j in out:
-                    if (j["score"] > score) and (len(j["text"]) >= minLength):
-                        textOCR = textOCR + j["text"] + " "
-            if difflib.SequenceMatcher(None, textOCR, textNow).ratio() < smr:
-                textNow = textOCR
-                print(lrc_time_format(i/fps),textOCR)
-    else:
-        print("failed to open video")
+                    if (j[-1] > score) and (len(j[-2]) > minLength):
+                        textOCR += j[-2] + " "
+                if difflib.SequenceMatcher(None,textOCR,textNow).ratio() < st:
+                    textNow = textOCR
+                    print(lrc_time_format(i/fps),textOCR)
+
+                    
+
+            
