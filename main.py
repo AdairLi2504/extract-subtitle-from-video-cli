@@ -1,6 +1,5 @@
 import difflib
 
-from PIL import Image
 import cv2
 import easyocr
 import argparse
@@ -9,11 +8,25 @@ parser = argparse.ArgumentParser(description="Get subtitle displayed on the vide
 file = parser.add_argument("-f","--file",type=str,required=True,help="Path of the video file")
 parser.add_argument("-p","--position",type=str,required=True,help="Position of the left top corner of the subtitle.It should be the pixel distance to the left side of the video, 'x', another pixel distance to the top of the video.e.g. 10x320 ")
 parser.add_argument("-s","--size",type=str,required=True,help="Size of the subtitle.It should be the width, 'x', and the height. e.g 620x40")
-parser.add_argument("-t","--thresh",type=int,default=0,help="Use cv2.threshold to enhance the subtitle image. Any pixel which is higher than this value will become white, and others will become black.\nIf the value is default 0, cv2.threshold will not be used. Please keep it 0 when the background of subtitle is a single colour.")
+parser.add_argument("-th","--thresh",type=int,default=0,help="Use cv2.threshold to enhance the subtitle image. Any pixel which is higher than this value will become white, and others will become black.\nIf the value is default 0, cv2.threshold will not be used. Please keep it 0 when the background of subtitle is a single colour.")
 parser.add_argument("-sc","--score",type=float,default=0.4,help="The lowest score a part of subtitle should get.")
 parser.add_argument("-ml","--minLength",type=int,default=2,help="Only text with a length greater than this value is considered part of the subtitles.")
 parser.add_argument('-st', "--similarityThreshold", type=float,default=0.7, help="Consider a new line if the similarity between the newly detected text and the previous detected text is below this value.")
 args = parser.parse_args()
+
+
+def srt_time_format(time):
+    second = time % 60
+    second = round(second, 2)
+    secondstr = str(second)
+    secondstr = secondstr.split('.')[0].rjust(2, '0') + ',' + secondstr.split('.')[1].ljust(4, '0')
+    minute = int(time / 60)
+    minutestr = str(minute)
+    minutestr = minutestr.rjust(2, '0')
+    hour = int(time/3600)
+    hourstr = str(hour)
+    hourstr = hourstr.rjust(2,'0')
+    return hourstr + ":" + minutestr + ":" +secondstr
 
 def lrc_time_format(time):
     second = time % 60
@@ -24,6 +37,7 @@ def lrc_time_format(time):
     minutestr = str(minute)
     minutestr = minutestr.rjust(2, '0')
     return '[' + minutestr + ':' + secondstr + ']'
+
 
 if __name__ == "__main__":
     capture = cv2.VideoCapture(args.file)
@@ -64,8 +78,9 @@ if __name__ == "__main__":
         i = 0
         textOCR = ""
         textNow = ""
+        srt_tem_list = []
+        cut_by_blank = False
         ocr = easyocr.Reader(['en','ch_sim'])
-        print(thresh)
         while True:
             i += 1
             ret, img = capture.read()
@@ -82,9 +97,17 @@ if __name__ == "__main__":
                     if (j[-1] > score) and (len(j[-2]) > minLength):
                         textOCR += j[-2] + " "
                 if difflib.SequenceMatcher(None,textOCR,textNow).ratio() < st:
+                    if len(srt_tem_list) != 0 and not cut_by_blank:
+                        srt_tem_list[-1][1] = srt_time_format(i/fps)
+                        print(srt_tem_list[-1])
                     textNow = textOCR
                     print(lrc_time_format(i/fps),textOCR)
-
-                    
-
-            
+                    srt_tem_list.append([srt_time_format(i/fps),"",textOCR])
+                    cut_by_blank = False
+            else:
+                if len(srt_tem_list) != 0 and not cut_by_blank:
+                    srt_tem_list[-1][1] = srt_time_format(i/fps)
+                    print(srt_tem_list[-1])
+                    cut_by_blank = True
+    
+        
