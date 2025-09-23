@@ -8,6 +8,8 @@ parser = argparse.ArgumentParser(description="Get subtitle displayed on the vide
 file = parser.add_argument("-f","--file",type=str,required=True,help="Path of the video file")
 parser.add_argument("-p","--position",type=str,required=True,help="Position of the left top corner of the subtitle.It should be the pixel distance to the left side of the video, 'x', another pixel distance to the top of the video.e.g. 10x320 ")
 parser.add_argument("-s","--size",type=str,required=True,help="Size of the subtitle.It should be the width, 'x', and the height. e.g 620x40")
+parser.add_argument("-o","--output",required=True,type=str,help="Path of the output subtitle file.\nPlease include name extension")
+parser.add_argument("-t","--type",type=str,default="srt",help="Choose srt or lrc as your subtitle file format. e.g -t lrc")
 parser.add_argument("-th","--thresh",type=int,default=0,help="Use cv2.threshold to enhance the subtitle image. Any pixel which is higher than this value will become white, and others will become black.\nIf the value is default 0, cv2.threshold will not be used. Please keep it 0 when the background of subtitle is a single colour.")
 parser.add_argument("-sc","--score",type=float,default=0.4,help="The lowest score a part of subtitle should get.")
 parser.add_argument("-ml","--minLength",type=int,default=2,help="Only text with a length greater than this value is considered part of the subtitles.")
@@ -19,7 +21,7 @@ def srt_time_format(time):
     second = time % 60
     second = round(second, 2)
     secondstr = str(second)
-    secondstr = secondstr.split('.')[0].rjust(2, '0') + ',' + secondstr.split('.')[1].ljust(4, '0')
+    secondstr = secondstr.split('.')[0].rjust(2, '0') + ',' + secondstr.split('.')[1].ljust(3, '0')
     minute = int(time / 60)
     minutestr = str(minute)
     minutestr = minutestr.rjust(2, '0')
@@ -56,6 +58,9 @@ if __name__ == "__main__":
     if not 0 <= args.similarityThreshold <= 1: raise argparse.ArgumentTypeError("The similarity value should be between 0 and 1")
     else: st = args.similarityThreshold
 
+    if not args.type in ["lrc","srt"]: raise argparse.ArgumentTypeError("Unknow subtitle format")
+    else: file_type = args.type
+
     #parse the area of the subtitle
     if len(pos_list) != 2:
         raise argparse.ArgumentTypeError("The format of the position cannot be parsed")
@@ -79,6 +84,7 @@ if __name__ == "__main__":
         textOCR = ""
         textNow = ""
         srt_tem_list = []
+        lrc_list = []
         cut_by_blank = False
         ocr = easyocr.Reader(['en','ch_sim'])
         while True:
@@ -99,15 +105,22 @@ if __name__ == "__main__":
                 if difflib.SequenceMatcher(None,textOCR,textNow).ratio() < st:
                     if len(srt_tem_list) != 0 and not cut_by_blank:
                         srt_tem_list[-1][1] = srt_time_format(i/fps)
-                        print(srt_tem_list[-1])
                     textNow = textOCR
-                    print(lrc_time_format(i/fps),textOCR)
+                    lrc_list.append(lrc_time_format(i/fps)+textOCR)
                     srt_tem_list.append([srt_time_format(i/fps),"",textOCR])
                     cut_by_blank = False
             else:
                 if len(srt_tem_list) != 0 and not cut_by_blank:
                     srt_tem_list[-1][1] = srt_time_format(i/fps)
-                    print(srt_tem_list[-1])
                     cut_by_blank = True
     
-        
+        with open(args.output,'w') as f:
+            if file_type == "srt":
+                for i in range(len(srt_tem_list)):
+                    j = srt_tem_list[i]
+                    f.write(str(i+1)+"\n")
+                    f.write(j[0]+" --> "+j[1]+"\n")
+                    f.write(j[2]+"\n\n")
+            elif file_type == "lrc":
+                f.writelines(lrc_list)
+            else: raise argparse.ArgumentTypeError("Unknow subtitle format")
