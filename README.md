@@ -4,5 +4,5 @@
 
 ## Notification
 
-Some has made a better tool [video-subtitle-extractor](video-subtitle-extractor) with GUI, so I do not have new development plan.
+Some has made a better tool [video-subtitle-extractor](https://github.com/YaoFANGUK/video-subtitle-extractor) with GUI, so I do not have new development plan.
 
